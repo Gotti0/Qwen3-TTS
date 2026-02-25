@@ -10,13 +10,13 @@ interface Props {
     modelLoaded: boolean;
 }
 
-const DEFAULT_INSTRUCT = `Dark Xianxia / martial arts novel narration. Overall slow, lingering breath (0.9x pace), subtle reverb for atmospheric depth.
+const DEFAULT_INSTRUCT = `Dark Xianxia and martial arts novel narration with dynamic, tense pacing at standard 1.0x to 1.05x speed, using crisp articulation and subtle reverb for atmospheric depth without dragging the tempo.
 
-[Narrator] Medium-low pitch, calm and composed narration. Switch to whispery ASMR tone for sensual descriptions.
-[Male character] Low pitch with vocal fry, wicked and arrogant tone. Drawl endings when taunting, rough breathing when excited.
-[Female character] Clear high pitch with trembling, cold but gradually breaking down. Quiver at line endings when resisting, stammering with tearful tone when pleading.
+[Narrator] Medium-low pitch, rhythmically engaging and composed narration, switching to an intense, close-mic whisper with rapid delivery for sensual descriptions to maintain momentum.
+[Male character] Low pitch with subtle vocal fry, wicked and arrogant tone, using a snappy, biting delivery instead of drawling when taunting, and heavy, rapid breathing when excited.
+[Female character] Clear high pitch with urgent trembling, cold but breaking down with fast, breathless pacing, quivering sharply at line endings when resisting, and stammering with desperate, quickened tearful urgency when pleading.
 
-Maximize emotional inflection for quoted dialogue. Fill ellipses (……) with trembling breath instead of silence. Apply dreamy reverb to inner monologue.`;
+Maximize emotional inflection for quoted dialogue with rapid back-and-forths, filling ellipses (……) with short, sharp inhales to build tension rather than long pauses, and apply dreamy reverb to inner monologue while keeping the internal tempo brisk and fluid.`;
 
 const NovelTTSTab: React.FC<Props> = ({ languages, speakers, modelLoaded }) => {
     const [text, setText] = useState("");
