@@ -87,6 +87,7 @@ class NovelTTSEngine:
         use_semantic_split: bool = True,
         use_tqdm: bool = True,
         progress_callback: Optional[Callable[[ProgressEvent], None]] = None,
+        abort_event: Optional[__import__("threading").Event] = None,
         **gen_kwargs,
     ) -> Tuple[np.ndarray, int]:
         """
@@ -145,6 +146,10 @@ class NovelTTSEngine:
             pass
 
         for i, chunk in enumerate(chunks):
+            if abort_event and abort_event.is_set():
+                logger.info("TTS 생성이 외부 요청에 의해 중단되었습니다.")
+                break
+
             logger.info(
                 "[%d/%d] 생성 중 (scene_break=%s, %d자): %s...",
                 i + 1, total, chunk.is_scene_break, len(chunk.text),

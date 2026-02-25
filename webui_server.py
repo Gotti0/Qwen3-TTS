@@ -333,8 +333,11 @@ import uuid
 _audio_store: Dict[str, str] = {}  # file_id → filepath
 
 
+from fastapi import Request
+
 @app.post("/api/generate/novel/stream")
 async def generate_novel_stream(
+    request: Request,
     text: str = Form(...),
     language: str = Form("Auto"),
     speaker: str = Form("Vivian"),
@@ -351,6 +354,7 @@ async def generate_novel_stream(
     import queue
 
     progress_queue: queue.Queue = queue.Queue()
+    abort_event = threading.Event()
 
     def _run_generation():
         """동기 TTS 생성을 별도 스레드에서 실행, progress를 queue로 전달."""
@@ -378,7 +382,13 @@ async def generate_novel_stream(
                 use_semantic_split=use_semantic_split,
                 use_tqdm=True,
                 progress_callback=on_progress,
+                abort_event=abort_event,
             )
+
+            if abort_event.is_set():
+                # 작업이 취소된 경우 임시 파일 등을 굳이 만들지 않고 종료
+                progress_queue.put(("error", {"message": "Generation aborted by client"}))
+                return
 
             # 임시 WAV 파일 저장
             file_id = uuid.uuid4().hex[:12]
@@ -406,6 +416,12 @@ async def generate_novel_stream(
         thread.start()
 
         while True:
+            # 클라이언트 연결 종료 감지
+            if await request.is_disconnected():
+                print("[server] Client disconnected during novel TTS stream.")
+                abort_event.set()
+                return
+
             # 비동기적으로 queue를 확인
             while True:
                 try:

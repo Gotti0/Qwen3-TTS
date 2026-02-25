@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { generateNovelTTSStream } from "../api";
 import type { SSEProgressEvent } from "../api";
 import AudioPlayer from "./AudioPlayer";
@@ -41,9 +41,23 @@ const NovelTTSTab: React.FC<Props> = ({ languages, speakers, modelLoaded }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
     const startTimeRef = useRef<number>(0);
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     const charCount = text.length;
     const estimatedChunks = maxChars > 0 ? Math.max(1, Math.ceil(charCount / maxChars)) : 0;
+
+    // 브라우저 새로고침/이탈 방지 (로딩 중일 때만)
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (loading) {
+                e.preventDefault();
+                e.returnValue = ""; // Chrome 등에서 경고창을 띄우기 위한 표준 권장사항
+            }
+        };
+
+        window.addEventListener("beforeunload", handleBeforeUnload);
+        return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    }, [loading]);
 
     const handleFileLoad = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -61,6 +75,13 @@ const NovelTTSTab: React.FC<Props> = ({ languages, speakers, modelLoaded }) => {
             setError("소설 텍스트를 입력하거나 파일을 업로드해주세요.");
             return;
         }
+
+        // 기존에 진행 중인 요청이 있다면 취소(방어)
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+
         setError("");
         setLoading(true);
         setAudioUrl(null);
@@ -86,13 +107,25 @@ const NovelTTSTab: React.FC<Props> = ({ languages, speakers, modelLoaded }) => {
                         setProgressText(event.chunk_text || "");
                     }
                 },
+                abortControllerRef.current.signal
             );
             setAudioUrl(url);
         } catch (e: any) {
-            setError(e.message || "소설 TTS 생성에 실패했습니다.");
+            if (e.name === "AbortError" || e.message?.includes("aborted")) {
+                setError("생성이 취소되었습니다.");
+            } else {
+                setError(e.message || "소설 TTS 생성에 실패했습니다.");
+            }
         } finally {
             setLoading(false);
             if (timerRef.current) clearInterval(timerRef.current);
+            abortControllerRef.current = null;
+        }
+    };
+
+    const handleCancel = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
         }
     };
 
@@ -296,19 +329,38 @@ const NovelTTSTab: React.FC<Props> = ({ languages, speakers, modelLoaded }) => {
                 </div>
             )}
 
-            {/* Generate Button */}
-            <button
-                className={`btn-generate ${loading ? "loading" : ""}`}
-                onClick={handleGenerate}
-                disabled={loading || !modelLoaded}
-            >
-                {loading
-                    ? <><LoadingWaves /> <span style={{ marginLeft: 8 }}>생성 중...</span></>
-                    : !modelLoaded
-                        ? "⚠ 모델 미연결"
-                        : `📖 소설 음성 생성 (${estimatedChunks}청크)`
-                }
-            </button>
+            <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                    className={`btn-generate ${loading ? "loading" : ""}`}
+                    onClick={handleGenerate}
+                    disabled={loading || !modelLoaded}
+                    style={{ flex: 1 }}
+                >
+                    {loading
+                        ? <><LoadingWaves /> <span style={{ marginLeft: 8 }}>생성 중...</span></>
+                        : !modelLoaded
+                            ? "⚠ 모델 미연결"
+                            : `📖 소설 음성 생성 (${estimatedChunks}청크)`
+                    }
+                </button>
+
+                {loading && (
+                    <button
+                        className="btn-default"
+                        onClick={handleCancel}
+                        style={{
+                            backgroundColor: "var(--bg-input)",
+                            color: "var(--error-color)",
+                            border: "1px solid var(--error-color)",
+                            padding: "0 20px",
+                            fontWeight: 600,
+                            borderRadius: "var(--radius-md)",
+                        }}
+                    >
+                        취소
+                    </button>
+                )}
+            </div>
 
             {error && <div className="status-bar error">{error}</div>}
             <AudioPlayer audioUrl={audioUrl} />

@@ -170,6 +170,7 @@ export async function generateNovelTTSStream(
     scenePauseMs: number,
     useSemanticSplit: boolean,
     onEvent: (event: SSEProgressEvent) => void,
+    abortSignal?: AbortSignal,
 ): Promise<string> {
     const form = new FormData();
     form.append("text", text);
@@ -184,6 +185,7 @@ export async function generateNovelTTSStream(
     const res = await fetch(`${API_BASE}/api/generate/novel/stream`, {
         method: "POST",
         body: form,
+        signal: abortSignal,
     });
 
     if (!res.ok) {
