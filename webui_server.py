@@ -289,6 +289,148 @@ async def generate_voice_clone(
         return JSONResponse(status_code=500, content={"error": f"{type(e).__name__}: {e}"})
 
 
+# ---------------------------------------------------------------------------
+# Novel TTS (long text) generation
+# ---------------------------------------------------------------------------
+@app.post("/api/generate/novel")
+async def generate_novel(
+    text: str = Form(...),
+    language: str = Form("Auto"),
+    speaker: str = Form("Vivian"),
+    instruct: str = Form(""),
+    max_chars: int = Form(200),
+    pause_ms: int = Form(500),
+    scene_pause_ms: int = Form(1500),
+    use_semantic_split: bool = Form(True),
+):
+    if _tts_model is None:
+        return JSONResponse(status_code=503, content={"error": "모델이 로드되지 않았습니다. WebUI에서 모델을 선택하세요."})
+    try:
+        from novel_tts import NovelTTSEngine
+        engine = NovelTTSEngine(_tts_model)
+        wav, sr = engine.generate(
+            text=text.strip(),
+            language=language,
+            speaker=speaker,
+            instruct=instruct.strip() or "",
+            max_chars=max_chars,
+            pause_ms=pause_ms,
+            scene_pause_ms=scene_pause_ms,
+            use_semantic_split=use_semantic_split,
+        )
+        return _wav_response(wav, sr)
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse(status_code=500, content={"error": f"{type(e).__name__}: {e}"})
+# ---------------------------------------------------------------------------
+# Novel TTS — SSE streaming with progress
+# ---------------------------------------------------------------------------
+import json
+import tempfile
+import threading
+import uuid
+
+_audio_store: Dict[str, str] = {}  # file_id → filepath
+
+
+@app.post("/api/generate/novel/stream")
+async def generate_novel_stream(
+    text: str = Form(...),
+    language: str = Form("Auto"),
+    speaker: str = Form("Vivian"),
+    instruct: str = Form(""),
+    max_chars: int = Form(200),
+    pause_ms: int = Form(500),
+    scene_pause_ms: int = Form(1500),
+    use_semantic_split: bool = Form(True),
+):
+    if _tts_model is None:
+        return JSONResponse(status_code=503, content={"error": "모델이 로드되지 않았습니다."})
+
+    import asyncio
+    import queue
+
+    progress_queue: queue.Queue = queue.Queue()
+
+    def _run_generation():
+        """동기 TTS 생성을 별도 스레드에서 실행, progress를 queue로 전달."""
+        try:
+            from novel_tts import NovelTTSEngine
+            engine = NovelTTSEngine(_tts_model)
+
+            def on_progress(evt):
+                progress_queue.put(("progress", {
+                    "current": evt.current,
+                    "total": evt.total,
+                    "chunk_text": evt.chunk_text,
+                    "elapsed_s": evt.elapsed_s,
+                    "audio_duration_s": evt.audio_duration_s,
+                }))
+
+            wav, sr = engine.generate(
+                text=text.strip(),
+                language=language,
+                speaker=speaker,
+                instruct=instruct.strip() or "",
+                max_chars=max_chars,
+                pause_ms=pause_ms,
+                scene_pause_ms=scene_pause_ms,
+                use_semantic_split=use_semantic_split,
+                use_tqdm=True,
+                progress_callback=on_progress,
+            )
+
+            # 임시 WAV 파일 저장
+            file_id = uuid.uuid4().hex[:12]
+            tmp_dir = os.path.join(tempfile.gettempdir(), "novel_tts_audio")
+            os.makedirs(tmp_dir, exist_ok=True)
+            filepath = os.path.join(tmp_dir, f"{file_id}.wav")
+
+            import soundfile as sf
+            sf.write(filepath, wav, sr)
+            _audio_store[file_id] = filepath
+
+            total_duration = len(wav) / sr
+            progress_queue.put(("complete", {
+                "audio_url": f"/api/audio/{file_id}.wav",
+                "duration_s": round(total_duration, 2),
+            }))
+
+        except Exception as e:
+            traceback.print_exc()
+            progress_queue.put(("error", {"message": f"{type(e).__name__}: {e}"}))
+
+    async def event_generator():
+        loop = asyncio.get_event_loop()
+        thread = threading.Thread(target=_run_generation, daemon=True)
+        thread.start()
+
+        while True:
+            # 비동기적으로 queue를 확인
+            while True:
+                try:
+                    event_type, data = progress_queue.get_nowait()
+                    yield f"data: {json.dumps({'type': event_type, **data}, ensure_ascii=False)}\n\n"
+                    if event_type in ("complete", "error"):
+                        return
+                except queue.Empty:
+                    break
+            await asyncio.sleep(0.2)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@app.get("/api/audio/{file_id}.wav")
+async def serve_audio(file_id: str):
+    filepath = _audio_store.get(file_id)
+    if not filepath or not os.path.exists(filepath):
+        return JSONResponse(status_code=404, content={"error": "Audio not found"})
+
+    from fastapi.responses import FileResponse
+    return FileResponse(filepath, media_type="audio/wav", filename=f"novel_{file_id}.wav")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8100)
+

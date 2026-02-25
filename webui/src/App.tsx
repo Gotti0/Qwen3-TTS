@@ -5,14 +5,16 @@ import type { ModelInfo } from "./api";
 import CustomVoiceTab from "./components/CustomVoiceTab";
 import VoiceDesignTab from "./components/VoiceDesignTab";
 import VoiceCloneTab from "./components/VoiceCloneTab";
+import NovelTTSTab from "./components/NovelTTSTab";
 import ModelSelector from "./components/ModelSelector";
 
-type TabId = "custom-voice" | "voice-design" | "voice-clone";
+type TabId = "custom-voice" | "voice-design" | "voice-clone" | "novel-tts";
 
 const TABS: { id: TabId; label: string; emoji: string; kind: string }[] = [
   { id: "custom-voice", label: "Custom Voice", emoji: "🎙️", kind: "custom_voice" },
   { id: "voice-design", label: "Voice Design", emoji: "🎨", kind: "voice_design" },
   { id: "voice-clone", label: "Voice Clone", emoji: "🎤", kind: "base" },
+  { id: "novel-tts", label: "Novel TTS", emoji: "📖", kind: "custom_voice" },
 ];
 
 const DEFAULT_LANGUAGES = [
@@ -156,6 +158,13 @@ function App() {
         <VoiceCloneTab
           languages={languages}
           modelLoaded={modelLoaded && modelKind === "base"}
+        />
+      )}
+      {activeTab === "novel-tts" && (
+        <NovelTTSTab
+          languages={languages}
+          speakers={speakers}
+          modelLoaded={modelLoaded && modelKind === "custom_voice"}
         />
       )}
     </div>
